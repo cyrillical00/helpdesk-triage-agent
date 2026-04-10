@@ -1,6 +1,7 @@
 import anthropic
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,7 +38,7 @@ def _call_api(tickets: list[dict]) -> list[dict]:
     tickets_text = json.dumps(tickets, indent=2)
 
     message = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=8192,
         system=SYSTEM_PROMPT,
         messages=[
@@ -61,11 +62,9 @@ def _call_api(tickets: list[dict]) -> list[dict]:
 
 def triage_tickets(tickets: list[dict]) -> list[dict]:
     """
-    Splits tickets into batches of BATCH_SIZE, calls the API for each,
-    and merges results. Prevents token-limit truncation on large sets.
+    Splits tickets into batches of BATCH_SIZE and runs all batches in parallel.
     """
-    results = []
-    for i in range(0, len(tickets), BATCH_SIZE):
-        batch = tickets[i : i + BATCH_SIZE]
-        results.extend(_call_api(batch))
-    return results
+    batches = [tickets[i : i + BATCH_SIZE] for i in range(0, len(tickets), BATCH_SIZE)]
+    with ThreadPoolExecutor(max_workers=len(batches)) as executor:
+        results_per_batch = list(executor.map(_call_api, batches))
+    return [item for batch in results_per_batch for item in batch]
