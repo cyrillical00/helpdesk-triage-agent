@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 import json
-from io import StringIO
 from sample_data import SAMPLE_TICKETS
 from triage import triage_tickets
+from kb import fetch_knowledge_base, format_kb_for_prompt
 
 # ─── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -127,9 +127,12 @@ with col_run:
     )
 
 if run_clicked and tickets_to_triage:
-    with st.spinner("Sending tickets to Claude..."):
+    with st.spinner("Loading knowledge base + sending to Claude..."):
         try:
-            results = triage_tickets(tickets_to_triage)
+            kb_articles = fetch_knowledge_base()
+            kb_block = format_kb_for_prompt(kb_articles)
+            st.session_state["kb_articles"] = {a["id"][:8]: a for a in kb_articles}
+            results = triage_tickets(tickets_to_triage, kb_block)
             st.session_state["triage_results"] = results
             st.session_state["source_tickets"] = {t["id"]: t for t in tickets_to_triage}
         except Exception as e:
@@ -147,14 +150,17 @@ if "triage_results" in st.session_state:
     p1_count = sum(1 for r in results if r["priority"].startswith("P1"))
     p2_count = sum(1 for r in results if r["priority"].startswith("P2"))
     auto_count = sum(1 for r in results if r.get("auto_resolvable"))
+    kb_matched = sum(1 for r in results if r.get("kb_id"))
+    auto_close_count = sum(1 for r in results if r.get("auto_close"))
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     for col, val, label in [
         (col1, total, "Total Tickets"),
         (col2, p1_count, "P1 · Critical"),
         (col3, p2_count, "P2 · High"),
         (col4, total - p1_count - p2_count, "P3-P4 · Backlog"),
-        (col5, auto_count, "Auto-Resolvable"),
+        (col5, kb_matched, "KB Matches"),
+        (col6, auto_close_count, "Auto-Close Ready"),
     ]:
         with col:
             st.markdown(f"""
@@ -194,9 +200,12 @@ if "triage_results" in st.session_state:
     # ── Triage table ──
     st.markdown('<div class="section-label">Triage Results</div>', unsafe_allow_html=True)
 
+    kb_articles = st.session_state.get("kb_articles", {})
+
     for r in sorted(filtered, key=lambda x: x["priority"]):
         src = source.get(r["id"], {})
         priority = r["priority"]
+        can_auto_close = r.get("auto_close", False)
 
         badge_class = {
             "P1 - Critical": "badge-p1",
@@ -205,7 +214,8 @@ if "triage_results" in st.session_state:
             "P4 - Low": "badge-p4",
         }.get(priority, "badge-p4")
 
-        with st.expander(f"{r['id']} · {src.get('subject', r['id'])} · {src.get('submitter', '')}"):
+        label = f"{'✅ ' if can_auto_close else ''}{r['id']} · {src.get('subject', r['id'])} · {src.get('submitter', '')}"
+        with st.expander(label):
             meta_col, action_col = st.columns([1, 2])
 
             with meta_col:
@@ -214,6 +224,8 @@ if "triage_results" in st.session_state:
                 st.markdown(f"**SLA:** {r['sla_hours']}h")
                 st.markdown(f"**Owner:** {r['owner']}")
                 st.markdown(f"**Auto-resolvable:** {'✓ Yes' if r.get('auto_resolvable') else '✗ No'}")
+                if can_auto_close:
+                    st.markdown('<span style="background:#14532D;color:#86EFAC;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;">✅ AUTO-CLOSE READY</span>', unsafe_allow_html=True)
                 tags = r.get("tags", [])
                 if tags:
                     tag_html = " ".join(
@@ -223,6 +235,18 @@ if "triage_results" in st.session_state:
                     st.markdown(f"**Tags:** {tag_html}", unsafe_allow_html=True)
 
             with action_col:
+                # KB resolution block
+                kb_id = r.get("kb_id")
+                resolution = r.get("resolution")
+                if kb_id and resolution:
+                    kb_article = kb_articles.get(kb_id, {})
+                    article_url = kb_article.get("article_url")
+                    st.markdown("**Known Fix (KB Match):**")
+                    st.success(resolution)
+                    if article_url:
+                        st.markdown(f"[📄 View KB Article →]({article_url})")
+                    st.markdown("---")
+
                 st.markdown("**Suggested Action:**")
                 st.info(r["suggested_action"])
                 if src.get("body"):
@@ -247,6 +271,9 @@ if "triage_results" in st.session_state:
             "SLA (hours)": r["sla_hours"],
             "Owner": r["owner"],
             "Auto-Resolvable": r.get("auto_resolvable", False),
+            "Auto-Close": r.get("auto_close", False),
+            "KB Match ID": r.get("kb_id") or "",
+            "Resolution": r.get("resolution") or "",
             "Tags": ", ".join(r.get("tags", [])),
             "Suggested Action": r["suggested_action"],
         })
