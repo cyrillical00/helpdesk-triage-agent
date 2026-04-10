@@ -29,16 +29,16 @@ Priority logic to follow:
 Return ONLY the JSON array. No explanation, no markdown, no preamble."""
 
 
-def triage_tickets(tickets: list[dict]) -> list[dict]:
-    """
-    Takes a list of ticket dicts and returns triage results.
-    Batches all tickets in one API call for efficiency.
-    """
+BATCH_SIZE = 15
+
+
+def _call_api(tickets: list[dict]) -> list[dict]:
+    """Single API call for a batch of tickets."""
     tickets_text = json.dumps(tickets, indent=2)
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=4096,
+        max_tokens=8192,
         system=SYSTEM_PROMPT,
         messages=[
             {
@@ -50,7 +50,6 @@ def triage_tickets(tickets: list[dict]) -> list[dict]:
 
     raw = message.content[0].text.strip()
 
-    # Strip markdown fences if present
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
@@ -58,3 +57,15 @@ def triage_tickets(tickets: list[dict]) -> list[dict]:
     raw = raw.strip()
 
     return json.loads(raw)
+
+
+def triage_tickets(tickets: list[dict]) -> list[dict]:
+    """
+    Splits tickets into batches of BATCH_SIZE, calls the API for each,
+    and merges results. Prevents token-limit truncation on large sets.
+    """
+    results = []
+    for i in range(0, len(tickets), BATCH_SIZE):
+        batch = tickets[i : i + BATCH_SIZE]
+        results.extend(_call_api(batch))
+    return results
