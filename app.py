@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
+import html
 from sample_data import SAMPLE_TICKETS
 from triage import triage_tickets
 from kb import fetch_knowledge_base, format_kb_for_prompt
@@ -219,7 +220,7 @@ if "triage_results" in st.session_state:
             meta_col, action_col = st.columns([1, 2])
 
             with meta_col:
-                st.markdown(f"**Priority:** <span class='{badge_class}'>{priority}</span>", unsafe_allow_html=True)
+                st.markdown(f"**Priority:** <span class='{badge_class}'>{html.escape(str(priority))}</span>", unsafe_allow_html=True)
                 st.markdown(f"**Category:** {r['category']}")
                 st.markdown(f"**SLA:** {r['sla_hours']}h")
                 st.markdown(f"**Owner:** {r['owner']}")
@@ -229,7 +230,7 @@ if "triage_results" in st.session_state:
                 tags = r.get("tags", [])
                 if tags:
                     tag_html = " ".join(
-                        f'<span style="background:#1E293B;color:#64748B;padding:2px 7px;border-radius:4px;font-size:10px;">{t}</span>'
+                        f'<span style="background:#1E293B;color:#64748B;padding:2px 7px;border-radius:4px;font-size:10px;">{html.escape(str(t))}</span>'
                         for t in tags
                     )
                     st.markdown(f"**Tags:** {tag_html}", unsafe_allow_html=True)
@@ -251,7 +252,7 @@ if "triage_results" in st.session_state:
                 st.info(r["suggested_action"])
                 if src.get("body"):
                     st.markdown("**Original ticket:**")
-                    st.markdown(f'<div style="color:#64748B;font-size:12px;line-height:1.6;">{src["body"]}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="color:#64748B;font-size:12px;line-height:1.6;">{html.escape(str(src["body"]))}</div>', unsafe_allow_html=True)
 
     st.markdown("---")
 
